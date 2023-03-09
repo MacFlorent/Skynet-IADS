@@ -1,4 +1,5 @@
 env.info("--- SKYNET VERSION: 3.1.0.Flogas | BUILD TIME: 09.03.2023 2004Z ---")
+
 do
 --this file contains the required units per sam type
 samTypesDB = {
@@ -3559,6 +3560,20 @@ function SkynetIADSAbstractRadarElement:areGoLiveConstraintsSatisfied(contact)
 		end
 	end
 	return true
+end
+
+function SkynetIADSAbstractRadarElement:removeGoLiveConstraint(constraintName)
+	local constraints = {}
+	for cName, constraint in pairs(self.goLiveConstraints) do
+		if cName ~= constraintName then
+			constraints[cName] = constraint
+		end
+	end
+	self.goLiveConstraints = constraints
+end
+
+function SkynetIADSAbstractRadarElement:getGoLiveConstraints()
+	return self.goLiveConstraints
 end
 
 function SkynetIADSSamSite:isDestroyed()
