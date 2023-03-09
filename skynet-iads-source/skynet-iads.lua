@@ -23,6 +23,9 @@ function SkynetIADS:create(name)
 		iads.name = ""
 	end
 	iads.contactUpdateInterval = 5
+
+	iads.goDarkWithSetOnOff = false -- FG setOnOff - option to use setOnOff instead for enableEmission
+
 	return iads
 end
 
@@ -533,8 +536,22 @@ function SkynetIADS.activate(self)
 end
 
 function SkynetIADS:setupSAMSitesAndThenActivate(setupTime)
-	self:activate()
-	self.logger:printOutputToLog("DEPRECATED: setupSAMSitesAndThenActivate, no longer needed since using enableEmission instead of AI on / off allows for the Ground units to setup with their radars turned off")
+	-- FG setOnOff - code extracted from latest commit with the function - SHA 73c1a48a9b1b278b268d8e63e16a3e132e654d88 on 25/03/2022
+	setupTime = setupTime or 60 -- FG setOnOff - no need for the global value in iads since it is only used here
+
+	local samSites = self:getSAMSites()
+	for i = 1, #samSites do
+		local sam = samSites[i]
+		sam:goLive()
+		--point defences will go dark after sam:goLive() call on the SAM they are protecting, so we load them by calling a separate goLive call here, point defence SAMs will therefore receive 2 goLive calls
+		-- this should not have a negative impact on performance
+		local pointDefences = sam:getPointDefences()
+		for j = 1, #pointDefences do
+			local pointDefence = pointDefences[j]
+			pointDefence:goLive()
+		end
+	end
+	self.samSetupMistTaskID = mist.scheduleFunction(SkynetIADS.activate, {self}, timer.getTime() + setupTime)
 end
 
 function SkynetIADS:deactivate()
