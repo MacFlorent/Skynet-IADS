@@ -527,17 +527,27 @@ function SkynetIADSAbstractRadarElement:goLive()
 	if ( self.aiState == false and self:hasWorkingPowerSource() and self.harmSilenceID == nil) 
 	and (self:hasRemainingAmmo() == true  )
 	then
+		local sGoDarkMethod = ""
 		if self:isDestroyed() == false then
 			local  cont = self:getController()
 			cont:setOption(AI.Option.Ground.id.ALARM_STATE, AI.Option.Ground.val.ALARM_STATE.RED)	
 			cont:setOption(AI.Option.Air.id.ROE, AI.Option.Air.val.ROE.WEAPON_FREE)
-			self:getDCSRepresentation():enableEmission(true)
+			
+			-- FG setOnOff - option to use setOnOff instead for enableEmission
+			if (self.iads.goDarkWithSetOnOff) then
+				cont:setOnOff(true)
+				sGoDarkMethod = ' (using setOnOff)'
+			else
+				self:getDCSRepresentation():enableEmission(true)
+				sGoDarkMethod = ' (using enableEmission)'
+			end
+			
 			self.goLiveTime = timer.getTime()
 			self.aiState = true
 		end
 		self:pointDefencesStopActingAsEW()
 		if  self.iads:getDebugSettings().radarWentLive then
-			self.iads:printOutputToLog("GOING LIVE: "..self:getDescription())
+			self.iads:printOutputToLog("GOING LIVE: "..self:getDescription() .. sGoDarkMethod)
 		end
 		self:scanForHarms()
 	end
@@ -555,8 +565,16 @@ function SkynetIADSAbstractRadarElement:goDark()
 	if (self:hasWorkingPowerSource() == false) or ( self.aiState == true ) 
 	and (self.harmSilenceID ~= nil or ( self.harmSilenceID == nil and #self:getDetectedTargets() == 0 and self:hasMissilesInFlight() == false) or ( self.harmSilenceID == nil and #self:getDetectedTargets() > 0 and self:hasMissilesInFlight() == false and self:hasRemainingAmmo() == false ) )	
 	then
+		local sGoDarkMethod = ""
 		if self:isDestroyed() == false then
-			self:getDCSRepresentation():enableEmission(false)
+			-- FG setOnOff - option to use setOnOff instead for enableEmission
+			if (self.iads.goDarkWithSetOnOff) then
+				self:getController():setOnOff(false)
+				sGoDarkMethod = ' (using setOnOff)'
+			else
+				self:getDCSRepresentation():enableEmission(false)
+				sGoDarkMethod = ' (using enableEmission)'
+			end
 		end
 		-- point defence will only go live if the Radar Emitting site it is protecting goes dark and this is due to a it defending against a HARM
 		if (self.harmSilenceID ~= nil) then
@@ -565,7 +583,7 @@ function SkynetIADSAbstractRadarElement:goDark()
 		self.aiState = false
 		self:stopScanningForHARMs()
 		if self.iads:getDebugSettings().radarWentDark then
-			self.iads:printOutputToLog("GOING DARK: "..self:getDescription())
+			self.iads:printOutputToLog("GOING DARK: "..self:getDescription() .. sGoDarkMethod)
 		end
 	end
 end
