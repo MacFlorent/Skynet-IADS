@@ -1,5 +1,4 @@
-env.info("--- SKYNET VERSION: 3.1.0.Flogas | BUILD TIME: 09.03.2023 2004Z ---")
-
+env.info("--- SKYNET VERSION: 3.1.1.Flogas | BUILD TIME: 11.05.2023 1943Z ---")
 do
 --this file contains the required units per sam type
 samTypesDB = {
@@ -1171,9 +1170,6 @@ function SkynetIADS:create(name)
 		iads.name = ""
 	end
 	iads.contactUpdateInterval = 5
-
-	iads.goDarkWithSetOnOff = false -- FG setOnOff - option to use setOnOff instead for enableEmission
-
 	return iads
 end
 
@@ -1684,22 +1680,8 @@ function SkynetIADS.activate(self)
 end
 
 function SkynetIADS:setupSAMSitesAndThenActivate(setupTime)
-	-- FG setOnOff - code extracted from latest commit with the function - SHA 73c1a48a9b1b278b268d8e63e16a3e132e654d88 on 25/03/2022
-	setupTime = setupTime or 60 -- FG setOnOff - no need for the global value in iads since it is only used here
-
-	local samSites = self:getSAMSites()
-	for i = 1, #samSites do
-		local sam = samSites[i]
-		sam:goLive()
-		--point defences will go dark after sam:goLive() call on the SAM they are protecting, so we load them by calling a separate goLive call here, point defence SAMs will therefore receive 2 goLive calls
-		-- this should not have a negative impact on performance
-		local pointDefences = sam:getPointDefences()
-		for j = 1, #pointDefences do
-			local pointDefence = pointDefences[j]
-			pointDefence:goLive()
-		end
-	end
-	self.samSetupMistTaskID = mist.scheduleFunction(SkynetIADS.activate, {self}, timer.getTime() + setupTime)
+	self:activate()
+	self.logger:printOutputToLog("DEPRECATED: setupSAMSitesAndThenActivate, no longer needed since using enableEmission instead of AI on / off allows for the Ground units to setup with their radars turned off")
 end
 
 function SkynetIADS:deactivate()
@@ -1894,7 +1876,10 @@ end
 function SkynetIADSAbstractDCSObjectWrapper:setDCSRepresentation(representation)
 	self.dcsRepresentation = representation
 	if self.dcsRepresentation then
-		self.dcsName = self:getDCSRepresentation():getName()
+		self.dcsName = self.dcsRepresentation:getName() -- FG 11/05/2023 - baleBaron hotfix issue 81
+		if (self.dcsName == nil or string.len(self.dcsName) == 0) and self.dcsRepresentation.id_ then
+			self.dcsName = self.dcsRepresentation.id_
+		end
 	end
 end
 
@@ -2649,27 +2634,17 @@ function SkynetIADSAbstractRadarElement:goLive()
 	if ( self.aiState == false and self:hasWorkingPowerSource() and self.harmSilenceID == nil) 
 	and (self:hasRemainingAmmo() == true  )
 	then
-		local sGoDarkMethod = ""
 		if self:isDestroyed() == false then
 			local  cont = self:getController()
 			cont:setOption(AI.Option.Ground.id.ALARM_STATE, AI.Option.Ground.val.ALARM_STATE.RED)	
 			cont:setOption(AI.Option.Air.id.ROE, AI.Option.Air.val.ROE.WEAPON_FREE)
-			
-			-- FG setOnOff - option to use setOnOff instead for enableEmission
-			if (self.iads.goDarkWithSetOnOff) then
-				cont:setOnOff(true)
-				sGoDarkMethod = ' (using setOnOff)'
-			else
-				self:getDCSRepresentation():enableEmission(true)
-				sGoDarkMethod = ' (using enableEmission)'
-			end
-			
+			self:getDCSRepresentation():enableEmission(true)
 			self.goLiveTime = timer.getTime()
 			self.aiState = true
 		end
 		self:pointDefencesStopActingAsEW()
 		if  self.iads:getDebugSettings().radarWentLive then
-			self.iads:printOutputToLog("GOING LIVE: "..self:getDescription() .. sGoDarkMethod)
+			self.iads:printOutputToLog("GOING LIVE: "..self:getDescription())
 		end
 		self:scanForHarms()
 	end
@@ -2687,16 +2662,8 @@ function SkynetIADSAbstractRadarElement:goDark()
 	if (self:hasWorkingPowerSource() == false) or ( self.aiState == true ) 
 	and (self.harmSilenceID ~= nil or ( self.harmSilenceID == nil and #self:getDetectedTargets() == 0 and self:hasMissilesInFlight() == false) or ( self.harmSilenceID == nil and #self:getDetectedTargets() > 0 and self:hasMissilesInFlight() == false and self:hasRemainingAmmo() == false ) )	
 	then
-		local sGoDarkMethod = ""
 		if self:isDestroyed() == false then
-			-- FG setOnOff - option to use setOnOff instead for enableEmission
-			if (self.iads.goDarkWithSetOnOff) then
-				self:getController():setOnOff(false)
-				sGoDarkMethod = ' (using setOnOff)'
-			else
-				self:getDCSRepresentation():enableEmission(false)
-				sGoDarkMethod = ' (using enableEmission)'
-			end
+			self:getDCSRepresentation():enableEmission(false)
 		end
 		-- point defence will only go live if the Radar Emitting site it is protecting goes dark and this is due to a it defending against a HARM
 		if (self.harmSilenceID ~= nil) then
@@ -2705,7 +2672,7 @@ function SkynetIADSAbstractRadarElement:goDark()
 		self.aiState = false
 		self:stopScanningForHARMs()
 		if self.iads:getDebugSettings().radarWentDark then
-			self.iads:printOutputToLog("GOING DARK: "..self:getDescription() .. sGoDarkMethod)
+			self.iads:printOutputToLog("GOING DARK: "..self:getDescription())
 		end
 	end
 end
@@ -3846,7 +3813,17 @@ function SkynetIADSHARMDetection:getNewRadarsThatHaveDetectedContact(contact)
 			end
 		end
 	end
-	self.contactRadarsEvaluated[contact] = contact:getAbstractRadarElementsDetected()
+	-- FG correction FG self.contactRadarsEvaluated[contact] = contact:getAbstractRadarElementsDetected()
+	-- if the evaluated table is the same as the detected one, when we merge the contact and update the detected table all new radars are considered as having already evaluated the contact for HARM
+	-- so the table needs to be a *copy*
+	-- then again it is dubious that the hard ident is correct (as described in the docs) because the radars will detect the harm one after the other, and try each one in turn for the identify
+	-- the case when multiple radars will pick up the harm in the same 5 second loop (and so up the prob of ident) seems rare
+	local radarsDetected = contact:getAbstractRadarElementsDetected()
+	self.contactRadarsEvaluated[contact] = {}
+	for j = 1, #radarsDetected do
+		table.insert(self.contactRadarsEvaluated[contact], radarsDetected[j])
+	end
+	--
 	return newRadars
 end
 
